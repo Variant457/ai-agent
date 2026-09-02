@@ -1,7 +1,10 @@
 import os
 import argparse
+import json
 from dotenv import load_dotenv
 from openai import OpenAI
+from prompts import system_prompt
+from call_function import available_functions, call_function
 
 def main():
     load_dotenv()
@@ -20,16 +23,27 @@ def main():
     args = parser.parse_args()
 
     messages = [
-        {"role": "user", "content": args.user_prompt}
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": args.user_prompt},
     ]
 
     response = client.chat.completions.create(
         model="openrouter/free",
         messages=messages,
+        tools=available_functions,
     )
 
     if response.usage is None:
         raise RuntimeError("API Request Failed")
+    message = response.choices[0].message
+    for tool_call in message.tool_calls:
+        function_args = json.loads(tool_call.function.arguments or "{}")
+        print(f"Calling function: {tool_call.function.name}({function_args})")
+        result_msg = call_function(tool_call)
+        if result_msg["content"] == "":
+            raise Exception(f'Error: Function call "{func_name}({func_args})" did not return anything')
+        if args.verbose:
+            print(f"-> {result_msg['content']}")
 
     if args.verbose:
         print(
@@ -39,7 +53,7 @@ def main():
             Response tokens: {response.usage.completion_tokens}
             '''
         )
-    print(response.choices[0].message.content)
+    print(message.content)
 
 if __name__ == "__main__":
     main()
