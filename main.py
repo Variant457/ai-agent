@@ -27,6 +27,15 @@ def main():
         {"role": "user", "content": args.user_prompt},
     ]
 
+    for _ in range(20):
+        result = agent_call(client, args, messages)
+        if result is not None:
+            print(f"Final Response:\n{result}")
+            break
+        elif _ == 19:
+            sys.exit("Maximum iterations reached without a response")
+
+def agent_call(client: OpenAI, args, messages: list[dict[str, str]]) -> str | None:
     response = client.chat.completions.create(
         model="openrouter/free",
         messages=messages,
@@ -36,24 +45,30 @@ def main():
     if response.usage is None:
         raise RuntimeError("API Request Failed")
     message = response.choices[0].message
-    for tool_call in message.tool_calls:
-        function_args = json.loads(tool_call.function.arguments or "{}")
-        print(f"Calling function: {tool_call.function.name}({function_args})")
-        result_msg = call_function(tool_call)
-        if result_msg["content"] == "":
-            raise Exception(f'Error: Function call "{func_name}({func_args})" did not return anything')
-        if args.verbose:
-            print(f"-> {result_msg['content']}")
+    messages.append(message)
+    if message.tool_calls is not None:
+        for tool_call in message.tool_calls:
+            func_args = json.loads(tool_call.function.arguments or "{}")
+            if args.verbose:
+                print(f"Calling function: {tool_call.function.name}({func_args})")
 
-    if args.verbose:
-        print(
-            f'''
-            User prompt: {args.user_prompt}\n
-            Prompt tokens: {response.usage.prompt_tokens}\n
-            Response tokens: {response.usage.completion_tokens}
-            '''
-        )
-    print(message.content)
+            result_msg = call_function(tool_call)
+            if result_msg["content"] == "":
+                raise Exception(f'Error: Function call "{func_name}({func_args})" did not return anything')
+            if args.verbose:
+                print(f"-> {result_msg['content']}")
+
+            messages.append(result_msg)
+    else:
+        if args.verbose:
+            print(
+                f'''
+                User prompt: {args.user_prompt}\n
+                Prompt tokens: {response.usage.prompt_tokens}\n
+                Response tokens: {response.usage.completion_tokens}
+                '''
+            )
+        return message.content
 
 if __name__ == "__main__":
     main()
